@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1.3.0">
 </head>
 <body>
 
@@ -187,6 +187,7 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
     <label class="field switch"><span class="lbl">Show what the mic hears</span><input type="checkbox" data-k="showHeard"></label>
 
     <button class="btn ghost" id="resetSettings">Reset to defaults</button>
+    <p class="help" id="appVersion" style="text-align:center;margin:10px 0 0"></p>
   </div>
 </div>
 
@@ -208,8 +209,8 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
 
 <div id="toast" role="status" aria-live="polite"></div>
 
-<script src="matcher.js"></script>
-<script src="local-asr.js"></script>
-<script src="app.js"></script>
+<script src="matcher.js?v=1.3.0"></script>
+<script src="local-asr.js?v=1.3.0"></script>
+<script src="app.js?v=1.3.0"></script>
 </body>
 </html>

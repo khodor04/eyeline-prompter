@@ -5,6 +5,18 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const { splitWords, findNext } = window.Matcher;
 
+// Keep in sync with the ?v= query strings in index.html and CACHE in sw.js.
+const APP_VERSION = '1.3.0';
+
+// If the on-device engine script failed to load (e.g. a stale cache), keep the app working.
+const LocalASR = window.LocalASR || {
+  failed: true,
+  supported: () => false, info: () => null, isDownloaded: () => false, isReady: () => false,
+  prepare: async () => { throw new Error('the on-device engine didn’t load'); },
+  start() { throw new Error('the on-device engine didn’t load'); },
+  stop() {}, active: false,
+};
+
 /* ------------------------------------------------------------------ storage */
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
@@ -1010,6 +1022,11 @@ const ENGINE_HELP = {
 function updateModelUI() {
   const btn = $('#modelBtn'), st = $('#modelStatus');
   if (!btn) return;
+  if (LocalASR.failed) {
+    btn.hidden = true;
+    st.textContent = 'The on-device voice engine didn’t load. Close the app fully and open it again.';
+    return;
+  }
   const m = LocalASR.info(settings.lang);
   if (!m) {
     btn.hidden = true;
@@ -1090,6 +1107,7 @@ $('#resetSettings').addEventListener('click', () => {
 });
 
 /* ------------------------------------------------------------------ boot */
+$('#appVersion').textContent = `EyeLine v${APP_VERSION}`;
 buildFilterChips();
 renderList();
 syncForm();
