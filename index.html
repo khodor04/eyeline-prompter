@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#0b0b0f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="EyeLine">
+  <title>EyeLine Prompter</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<section id="home" class="view active">
+  <header class="bar">
+    <h1>Eye<span>Line</span></h1>
+    <button id="newBtn" class="btn primary">+ New script</button>
+  </header>
+  <ul id="list"></ul>
+  <p class="hint">Tip: “Add to Home Screen” from your browser menu to use it full-screen like a normal app.</p>
+</section>
+
+<!-- ============ EDITOR ============ -->
+<section id="editor" class="view">
+  <header class="bar">
+    <button id="backBtn" class="icon-btn" aria-label="Back">
+      <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <input id="title" placeholder="Script title" autocomplete="off" dir="auto">
+    <button class="icon-btn" data-open-settings aria-label="Settings">
+      <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.4" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="10" cy="17" r="2.4" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
+    </button>
+  </header>
+  <textarea id="body" dir="auto" placeholder="Paste or write your script here…
+
+Use [brackets] for cues like [smile] or [pause] — they’re shown but you don’t have to say them."></textarea>
+  <footer class="bar bottom">
+    <span id="stats"></span>
+    <button id="goBtn" class="btn primary big">Start prompter</button>
+  </footer>
+</section>
+
+<!-- ============ PROMPTER ============ -->
+<section id="prompter" class="view">
+  <video id="cam" playsinline muted autoplay></video>
+  <div id="box">
+    <div id="viewport"><div id="text"></div></div>
+    <div id="eye"></div>
+  </div>
+  <div id="heard"></div>
+  <div id="hud">
+    <div id="recTime" hidden>● 00:00</div>
+    <div id="filters" hidden>
+      <div id="filterChips"></div>
+      <label>Brightness <input type="range" id="brightness" min="70" max="140" step="1"></label>
+    </div>
+    <div id="tools">
+      <button id="flipBtn" class="pill">Flip camera</button>
+      <button id="filterBtn" class="pill">Filters</button>
+    </div>
+    <div id="status"><span class="dot" id="micDot"></span><span id="modeLabel"></span></div>
+    <div class="row">
+      <button id="closeBtn" class="icon-btn" aria-label="Close">
+        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+      </button>
+      <button id="restartBtn" class="icon-btn" aria-label="Back to start">
+        <svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9M4 4v5h5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button id="playBtn" class="round" aria-label="Play / pause"></button>
+      <button id="recBtn" class="round rec" aria-label="Record"></button>
+      <button class="icon-btn" data-open-settings aria-label="Settings">
+        <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="7" r="2.4" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="10" cy="17" r="2.4" fill="none" stroke="currentColor" stroke-width="2.2"/></svg>
+      </button>
+    </div>
+  </div>
+  <div id="countdown" hidden></div>
+</section>
+
+<!-- ============ SETTINGS ============ -->
+<div id="settings" class="sheet" hidden>
+  <div class="panel">
+    <div class="panel-head"><h2>Settings</h2><button class="btn primary" id="settingsDone">Done</button></div>
+
+    <div class="field">
+      <span class="lbl">Scroll mode</span>
+      <div class="seg" data-k="mode">
+        <button data-v="voice">Voice</button><button data-v="auto">Auto</button><button data-v="manual">Manual</button>
+      </div>
+      <small id="modeHelp" class="help"></small>
+    </div>
+    <div class="field" data-show="voice">
+      <label class="lbl" for="lang">Speech language</label>
+      <input id="lang" data-k="lang" list="langs" autocomplete="off" placeholder="en-US">
+      <datalist id="langs">
+        <option value="en-US"><option value="en-GB"><option value="en-AU"><option value="en-IN">
+        <option value="ar-LB"><option value="ar-SA"><option value="ar-EG"><option value="ar-AE">
+        <option value="fr-FR"><option value="es-ES"><option value="es-MX"><option value="de-DE">
+        <option value="it-IT"><option value="pt-BR"><option value="tr-TR"><option value="nl-NL">
+      </datalist>
+    </div>
+    <div class="field" data-show="auto">
+      <label class="lbl">Speed <output data-o="wpm"></output></label>
+      <input type="range" data-k="wpm" min="60" max="260" step="5">
+    </div>
+
+    <h3>Eye contact</h3>
+    <div class="field">
+      <span class="lbl">Text position — keep it right next to the camera</span>
+      <div class="seg" data-k="anchor">
+        <button data-v="top">Top (portrait)</button><button data-v="left">Left</button><button data-v="right">Right</button>
+      </div>
+      <small class="help">Filming landscape? Pick the side your camera is on.</small>
+    </div>
+    <div class="field">
+      <label class="lbl">Distance from camera <output data-o="topOffset"></output></label>
+      <input type="range" data-k="topOffset" min="0" max="240" step="2">
+    </div>
+    <div class="field">
+      <label class="lbl">Text width <output data-o="width"></output></label>
+      <input type="range" data-k="width" min="35" max="100" step="1">
+      <small class="help">Narrower = less side-to-side eye movement on camera.</small>
+    </div>
+    <div class="field">
+      <label class="lbl">Visible lines <output data-o="lines"></output></label>
+      <input type="range" data-k="lines" min="2" max="10" step="1">
+    </div>
+    <div class="field">
+      <span class="lbl">Reading line</span>
+      <div class="seg" data-k="eyeLine"><button data-v="0">1st line (best eye contact)</button><button data-v="1">2nd line</button></div>
+    </div>
+
+    <h3>Text</h3>
+    <div class="field">
+      <label class="lbl">Font size <output data-o="fontSize"></output></label>
+      <input type="range" data-k="fontSize" min="18" max="84" step="1">
+    </div>
+    <div class="field">
+      <span class="lbl">Highlight colour</span>
+      <div class="swatches" data-k="highlight">
+        <button data-v="#ffd23f" style="--c:#ffd23f"></button>
+        <button data-v="#3ddc84" style="--c:#3ddc84"></button>
+        <button data-v="#4cc3ff" style="--c:#4cc3ff"></button>
+        <button data-v="#ff6ad5" style="--c:#ff6ad5"></button>
+        <button data-v="#ff8a3d" style="--c:#ff8a3d"></button>
+        <button data-v="#8a8a96" style="--c:#8a8a96"></button>
+      </div>
+    </div>
+    <label class="field switch"><span class="lbl">Mirror text (for glass teleprompter rigs)</span><input type="checkbox" data-k="mirror"></label>
+
+    <h3>Camera &amp; recording</h3>
+    <label class="field switch"><span class="lbl">Show camera behind text</span><input type="checkbox" data-k="camera"></label>
+    <label class="field switch"><span class="lbl">Mirror the preview (selfie view)</span><input type="checkbox" data-k="mirrorPreview"></label>
+    <label class="field switch"><span class="lbl">Mirror the saved video</span><input type="checkbox" data-k="mirrorRecording"></label>
+    <small class="help">Off = the video is saved exactly as the camera sees it (text and logos read correctly).</small>
+    <label class="field switch"><span class="lbl">Record audio with video</span><input type="checkbox" data-k="recordAudio"></label>
+    <div class="field">
+      <span class="lbl">Audio</span>
+      <div class="seg" data-k="audioMode">
+        <button data-v="natural">Natural</button><button data-v="clean">Noise reduction</button><button data-v="studio">Studio voice</button>
+      </div>
+      <small id="audioHelp" class="help"></small>
+    </div>
+    <div class="field">
+      <label class="lbl" for="micSel">Microphone</label>
+      <select id="micSel" data-k="micId"></select>
+      <small class="help">Plugged in a lav / USB-C mic? Pick it here.</small>
+    </div>
+    <div class="field">
+      <span class="lbl">Countdown</span>
+      <div class="seg" data-k="countdown"><button data-v="0">Off</button><button data-v="3">3 s</button><button data-v="5">5 s</button></div>
+    </div>
+    <label class="field switch"><span class="lbl">Show what the mic hears</span><input type="checkbox" data-k="showHeard"></label>
+
+    <button class="btn ghost" id="resetSettings">Reset to defaults</button>
+  </div>
+</div>
+
+<!-- ============ RECORDING RESULT ============ -->
+<div id="result" class="sheet" hidden>
+  <div class="panel">
+    <div class="panel-head"><h2>Your take</h2><span id="resultInfo" class="muted"></span></div>
+    <video id="resultVideo" controls playsinline></video>
+    <div class="actions">
+      <button class="btn ghost" id="discardBtn">Discard</button>
+      <button class="btn" id="downloadBtn">Download</button>
+      <button class="btn primary" id="shareBtn">Save / Share</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="matcher.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
