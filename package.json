@@ -1,0 +1,12 @@
+{
+  "name": "eyeline-prompter",
+  "version": "1.0.0",
+  "description": "Free, open-source, voice-following teleprompter for your phone that keeps your eyes on the camera.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "npx --yes serve -l 8080 .",
+    "test": "node --test test/matcher.test.js"
+  },
+  "engines": { "node": ">=18" }
+}

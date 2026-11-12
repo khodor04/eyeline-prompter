@@ -1,0 +1,124 @@
+# How it works
+
+EyeLine is a single-page Progressive Web App with **no framework and no build step**. Everything runs in the browser.
+
+```
+┌───────────── index.html ─────────────┐
+│ Home ─ Editor ─ Prompter ─ Settings ─ Result │
+└──────────────────┬───────────────────┘
+                   │
+        app.js  ───┼─── matcher.js  (pure, unit-tested)
+                   │
+   ┌───────────────┼──────────────────────────────┐
+   │ Scroll engines│ Camera / recording │ Audio   │
+   │  voice / auto │ getUserMedia,      │ Web     │
+   │  / manual     │ canvas, Media-     │ Audio   │
+   │               │ Recorder           │ chain   │
+   └───────────────┴──────────────────────────────┘
+        localStorage (scripts, settings)   sw.js (offline cache)
+```
+
+## 1. Rendering the script
+
+`buildText()` turns the script into one `<p dir="auto">` per line and one `<span>` per token:
+
+- `.w`: a readable word. Each one gets an index `data-i` into `P.words`. A token like `well-known` produces **two** entries (`well`, `known`) that point to the same span.
+- `.cue`: `[bracketed]` text. Shown, never matched.
+- `.sym`: punctuation-only tokens (`—`, `…`). Shown, never matched.
+
+The app's position is a single integer, `P.pos`, the index of the **next word to be read**. `setPos(i)` repaints only the words between the old and new position (`.done` = said, `.now` = current), then scrolls.
+
+### Scrolling and eye contact
+
+The viewport is a fixed-height box (`lines × font size × line-height`) placed right under the camera. Scrolling is a CSS `translateY` on the inner text, computed so that the current word's line sits on the **reading line**:
+
+```js
+translateY = eyeLine * lineHeight - currentWord.offsetTop
+```
+
+There's a CSS transition, so line changes glide rather than jump. The bottom of the box fades out with a mask gradient, which keeps your eyes on the top line.
+
+## 2. Voice follow (`matcher.js`)
+
+The browser's `SpeechRecognition` runs in `continuous` + `interimResults` mode. On every result, the app rebuilds the full transcript, normalises it and takes the **last 8 words** (the *tail*). Using only the tail makes the algorithm robust to the recogniser rewriting earlier guesses.
+
+### Normalisation (`norm`)
+Lower-case → strip Latin accents and Arabic diacritics/tatweel → drop apostrophes → drop anything that isn't a letter or digit → map `0–20, 30…100` to words (`3` ↔ `three`).
+
+### Fuzzy word equality (`sim`)
+Two words match if they're equal, or if both are ≥ 4 letters and one is a prefix of the other (interim partials like `beaut` → `beautiful`, plurals), or if their Levenshtein distance is ≤ 1 (≤ 2 for words of 8+ letters). Short words must match exactly.
+
+### Alignment (`findNext`)
+For every script index `j` in the window `[pos − 3, pos + 60]` where `script[j]` matches the **last** heard word:
+
+1. **Score** = 1 + LCS(tail without its last word, the script words just before `j`). This measures how well the recent speech lines up with the script ending at `j`.
+2. **Evidence threshold** grows with the jump distance `d = j − pos`:
+   - `d ≤ 2` → 1 matching word is enough
+   - `d ≤ 10` → 2 words
+   - further → 3 words
+3. For jumps beyond 2 words, the evidence must come from **words ahead of the reader** (LCS over `script[pos..j]`), not from words already read. Without this rule, an already-read phrase plus a common word like "the" could pull the prompter several words ahead.
+4. **Value** = score − 0.06 × |d|. The highest value wins, so ties go to the nearest candidate.
+
+The new position is `j + 1`. The app only ever moves **forward** automatically. Moving back is manual (tap a word).
+
+This gives the behaviour you'd want:
+| Situation | Result |
+|---|---|
+| Read word-for-word | Advances one word at a time |
+| Misheard / filler / ad-lib words | Ignored: there's no candidate, or not enough evidence |
+| Skipped a sentence | Catches up after about 3 matching words |
+| Repeated common word ahead | Not enough fresh evidence, so it doesn't jump |
+
+Cost per result: about 60 candidates × an 8 × 11 LCS, a few thousand comparisons. That's negligible on a phone.
+
+`npm test` runs these scenarios.
+
+### Recognition lifecycle
+Browsers end recognition after silence or roughly a minute. `onend` restarts it transparently while prompting. Permission errors and `audio-capture` (the mic is busy, usually because recording is holding it) show a toast explaining what to do.
+
+## 3. Auto and manual modes
+
+- **Auto**: a `requestAnimationFrame` loop adds `dt × wpm / 60` to a fractional position and calls `setPos(floor(pos))`.
+- **Manual**: no engine. Moves come from tapping, swiping (`moveLines`), the wheel or the keyboard.
+
+## 4. Camera and recording
+
+- Preview: `getUserMedia({ video: { facingMode, ideal 1920×1080 } })` in a full-screen `<video>`. The filter is applied with a CSS `filter`, and selfie mirroring with an optional CSS `scaleX(-1)`. Both are cheap and run on the GPU.
+- Recording uses **two paths**:
+  - **Direct**: no filter and no mirroring, so the raw camera track goes straight to `MediaRecorder`. This gives the best quality and lowest CPU use, and the video is exactly what the camera sees.
+  - **Canvas**: when a filter or "mirror saved video" is on, each camera frame is drawn to a `<canvas>` with `ctx.filter` and an optional mirror transform, using `requestVideoFrameCallback` when available. `canvas.captureStream(30)` then feeds the recorder. Settings are read every frame, so changing the filter mid-take is applied live.
+- Format: the first supported of MP4 (H.264/AAC) → WebM (VP9/VP8 + Opus), at 8 Mbps video and 192 kbps audio.
+- The microphone is opened **only when recording starts**, not for the preview.
+
+## 5. Audio chain
+
+`getMic()` always disables `echoCancellation` and `autoGainControl`. `noiseSuppression` is on for *Noise reduction* and *Studio voice*.
+
+**Studio voice** adds a Web Audio graph:
+
+```
+mic → high-pass 85 Hz → peaking −2 dB @300 Hz → peaking +3 dB @3.5 kHz
+    → compressor (−24 dB, 3.5:1, 5 ms / 200 ms) → make-up gain ×1.7
+    → gate gain → MediaStreamDestination → MediaRecorder
+                ↑
+   analyser (after high-pass) measures RMS every 20 ms:
+   above −48 dBFS → gate opens (gain 1, 10 ms);
+   300 ms below → gate eases down to 0.15 (−16 dB, not full mute).
+```
+
+## 6. Storage and offline
+
+- `localStorage`: `eyeline.scripts` (an array of `{ id, title, text, updated }`), `eyeline.settings` and `eyeline.tipShown`. Every access is wrapped in try/catch so the app still works in private mode.
+- `sw.js`: **network-first** with a cache fallback. Updates show up as soon as you deploy, and the app still opens offline.
+- Wake Lock keeps the screen on while the prompter is open.
+
+## Files
+
+| File | Responsibility |
+|---|---|
+| `index.html` | Markup for all views and sheets |
+| `style.css` | Styling. Prompter sizing comes from CSS variables (`--fs`, `--lines`, `--w`, `--top`, `--eye`, `--hl`). |
+| `app.js` | State (`settings`, `P`), views, engines, camera, recording, audio, settings form binding |
+| `matcher.js` | `norm`, `splitWords`, `sim`, `lcs`, `findNext`. Works in the browser (`window.Matcher`) and Node (`module.exports`). |
+| `sw.js` | Offline cache |
+| `nginx.conf`, `Dockerfile` | Self-hosting image |
