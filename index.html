@@ -184,7 +184,10 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
 <!-- ============ RECORDING RESULT ============ -->
 <div id="result" class="sheet" hidden>
   <div class="panel">
-    <div class="panel-head"><h2>Your take</h2><span id="resultInfo" class="muted"></span></div>
+    <div class="panel-head">
+      <div><h2>Your take</h2><span id="resultInfo" class="muted"></span></div>
+      <button class="btn" id="resultClose">Close</button>
+    </div>
     <video id="resultVideo" controls playsinline></video>
     <div class="actions">
       <button class="btn ghost" id="discardBtn">Discard</button>

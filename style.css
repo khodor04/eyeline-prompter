@@ -51,6 +51,7 @@ h3 { margin: 22px 0 2px; font-size: 13px; text-transform: uppercase; letter-spac
 .btn.primary { background: var(--accent); color: #111; }
 .btn.big { padding: 15px 22px; font-size: 17px; }
 .btn.ghost { background: transparent; color: var(--muted); }
+.btn.danger { background: var(--danger); color: #fff; }
 .btn:active { transform: scale(.97); }
 
 .icon-btn {

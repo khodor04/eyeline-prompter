@@ -264,13 +264,43 @@ function closePrompter() {
 }
 
 /* ------------------------------------------------------------------ engines */
+// The engine actually running: normally the chosen mode, but a take can temporarily
+// fall back to auto-scroll when the phone won't share the mic (iPhone).
+const engine = () => P.engineOverride || settings.mode;
+const autoWpm = () => P.overrideWpm || settings.wpm;
+
 function startEngines() {
-  if (settings.mode === 'voice') startRecognition();
-  else if (settings.mode === 'auto') startAuto();
+  if (engine() === 'voice') startRecognition();
+  else if (engine() === 'auto') startAuto();
   updateHud();
 }
-function stopEngines() { stopRecognition(); stopAuto(); setMic(false); }
-function restartEngineAfterJump() { if (P.playing && settings.mode === 'auto') P.autoF = P.pos; }
+function stopEngines() { stopRecognition(); stopAuto(); setMic(false); savePace(); }
+function restartEngineAfterJump() { if (P.playing && engine() === 'auto') P.autoF = P.pos; }
+
+// Learn the speaker's real pace from voice follow, used when we must fall back to auto-scroll.
+function trackPace() {
+  const now = performance.now();
+  if (!P.pace) { P.pace = { t: now, pos: P.pos }; return; }
+  const words = P.pos - P.pace.pos, min = (now - P.pace.t) / 60000;
+  if (words >= 15 && min > 0) P.pace.wpm = Math.round(Math.min(220, Math.max(80, words / min)));
+}
+function savePace() {
+  if (P.pace?.wpm) { settings.learnedWpm = P.pace.wpm; saveSettings(); }
+  P.pace = null;
+}
+
+function fallbackToAuto(reason) {
+  if (P.engineOverride === 'auto') return;
+  savePace();
+  stopRecognition();
+  setMic(false);
+  P.engineOverride = 'auto';
+  P.overrideWpm = settings.learnedWpm || settings.wpm;
+  if (P.playing) startAuto();
+  updateHud();
+  toast(`${reason} This take auto-scrolls at your pace (${P.overrideWpm} wpm). Swipe or tap a word to adjust.`, 7000);
+}
+function clearFallback() { P.engineOverride = null; P.overrideWpm = null; }
 
 async function togglePlay() {
   if (P.counting) { cancelCountdown(); return; }
@@ -297,10 +327,10 @@ function startAuto() {
   P.autoF = P.pos;
   P.lastT = performance.now();
   const tick = t => {
-    if (!P.playing || settings.mode !== 'auto') return;
+    if (!P.playing || engine() !== 'auto') return;
     const dt = Math.min(0.25, (t - P.lastT) / 1000);
     P.lastT = t;
-    P.autoF += dt * settings.wpm / 60;
+    P.autoF += dt * autoWpm() / 60;
     const i = Math.floor(P.autoF);
     if (i !== P.pos) setPos(i, { fromEngine: true });
     if (P.playing) P.raf = requestAnimationFrame(tick);
@@ -326,31 +356,44 @@ function startRecognition() {
   r.interimResults = true;
   r.maxAlternatives = 1;
 
+  let ends = [];
   r.onstart = () => setMic(true);
   r.onresult = e => {
+    ends = [];
     let t = '';
     for (let k = 0; k < e.results.length; k++) t += ' ' + e.results[k][0].transcript;
     const spoken = splitWords(t);
     if (settings.showHeard) $('#heard').textContent = '🎙 ' + t.trim().split(/\s+/).slice(-7).join(' ');
     pulseMic();
     const np = findNext(P.norms, P.pos, spoken.slice(-8));
-    if (np > P.pos) setPos(np, { fromEngine: true });
+    if (np > P.pos) { setPos(np, { fromEngine: true }); trackPace(); }
   };
   r.onerror = e => {
-    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+    if (e.error === 'no-speech' || e.error === 'aborted') return; // normal; onend restarts
+    if (isRecording()) {
+      // Never stop the take: keep the prompter moving instead.
+      fallbackToAuto(e.error === 'network'
+        ? 'Voice follow lost its connection.'
+        : 'This phone can’t use the mic for voice follow while recording.');
+    } else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
       toast('Microphone permission was blocked. Allow mic access for this site in your browser settings.', 5000);
       pause();
     } else if (e.error === 'audio-capture') {
-      toast(isRecording()
-        ? 'Your browser can’t share the mic between voice-follow and recording. Turn off “Record audio” or use Auto mode.'
-        : 'No microphone found.', 6000);
+      toast('No microphone available for voice follow.', 5000);
     } else if (e.error === 'network') {
       toast('Voice follow needs an internet connection on this device.', 4000);
-    } // "no-speech" / "aborted" are normal; onend restarts
+    }
   };
   r.onend = () => {
     setMic(false);
-    if (P.recog !== r || !P.playing || settings.mode !== 'voice') return;
+    if (P.recog !== r || !P.playing || engine() !== 'voice') return;
+    // Silent failure: recognition keeps ending without hearing anything while recording
+    const now = Date.now();
+    ends = ends.filter(t => now - t < 10000).concat(now);
+    if (isRecording() && ends.length >= 4) {
+      fallbackToAuto('Voice follow isn’t getting the mic while recording.');
+      return;
+    }
     // browsers end recognition after silence / ~60s — restart transparently
     setTimeout(() => {
       if (P.recog === r && P.playing) { try { r.start(); } catch { /* already started */ } }
@@ -464,6 +507,11 @@ async function startCamera() {
     v.srcObject = P.stream;
     v.hidden = false;
     v.play().catch(() => {});
+    const stream = P.stream;
+    // iOS can end the camera track when the audio session changes; restart it.
+    stream.getVideoTracks().forEach(t => t.addEventListener('ended', () => {
+      if (P.stream === stream) { P.stream = null; setTimeout(recoverCamera, 300); }
+    }));
   } catch (err) {
     toast('Camera unavailable: ' + (err.name === 'NotAllowedError' ? 'permission denied' : err.message || err.name));
   }
@@ -661,7 +709,9 @@ function stopRecording() {
   clearInterval(P.recTimer);
   $('#recTime').hidden = true;
   pause();
+  clearFallback();
   try { P.recorder?.stop(); } catch { /* ignore */ }
+  if (!P.recorder) recoverCamera();
 }
 function finishRecording() {
   const type = P.recorder?.mimeType || pickMime() || 'video/webm';
@@ -670,7 +720,7 @@ function finishRecording() {
   P.recorder = null;
   releaseAudio();
   updateHud();
-  if (!blob.size) { toast('Recording was empty'); return; }
+  if (!blob.size) { toast('Recording was empty'); recoverCamera(); return; }
   if (P.resultUrl) URL.revokeObjectURL(P.resultUrl);
   P.resultBlob = blob;
   P.resultUrl = URL.createObjectURL(blob);
@@ -707,17 +757,52 @@ function closeResult() {
   const v = $('#resultVideo');
   v.pause(); v.removeAttribute('src'); v.load();
   $('#result').hidden = true;
+  resetDiscard();
+  // iPhone pauses the live camera while the take plays back: bring it back.
+  recoverCamera();
 }
 $('#downloadBtn').addEventListener('click', downloadResult);
 $('#shareBtn').addEventListener('click', shareResult);
+$('#resultClose').addEventListener('click', closeResult);
+
+// Two-tap discard instead of confirm(): native dialogs are unreliable in iOS home-screen apps.
+let discardT = 0;
+function resetDiscard() {
+  clearTimeout(discardT);
+  const b = $('#discardBtn');
+  b.textContent = 'Discard';
+  b.classList.remove('danger');
+}
 $('#discardBtn').addEventListener('click', () => {
-  if (confirm('Discard this take?')) {
-    closeResult();
-    if (P.resultUrl) URL.revokeObjectURL(P.resultUrl);
-    P.resultUrl = null; P.resultBlob = null;
+  const b = $('#discardBtn');
+  if (!b.classList.contains('danger')) {
+    b.textContent = 'Tap again to discard';
+    b.classList.add('danger');
+    clearTimeout(discardT);
+    discardT = setTimeout(resetDiscard, 3000);
+    return;
   }
+  closeResult();
+  if (P.resultUrl) URL.revokeObjectURL(P.resultUrl);
+  P.resultUrl = null; P.resultBlob = null;
+  toast('Take discarded');
 });
 $('#result').addEventListener('click', e => { if (e.target.id === 'result') closeResult(); });
+
+// Make sure the live camera is running again (after playback, a phone call, app switching...).
+async function recoverCamera() {
+  if (!$('#prompter').classList.contains('active') || !settings.camera || isRecording()) return;
+  const track = P.stream?.getVideoTracks()[0];
+  if (!track || track.readyState === 'ended' || track.muted) {
+    P.stream?.getTracks().forEach(t => t.stop());
+    P.stream = null;
+    await startCamera();
+  } else {
+    const v = $('#cam');
+    if (v.srcObject !== P.stream) v.srcObject = P.stream;
+    v.play().catch(() => {});
+  }
+}
 
 /* ------------------------------------------------------------------ wake lock */
 async function keepAwake(on) {
@@ -733,7 +818,7 @@ async function keepAwake(on) {
 }
 document.addEventListener('visibilitychange', () => {
   const inPrompter = $('#prompter').classList.contains('active');
-  if (document.visibilityState === 'visible' && inPrompter) keepAwake(true);
+  if (document.visibilityState === 'visible' && inPrompter) { keepAwake(true); recoverCamera(); }
   if (document.visibilityState === 'hidden' && inPrompter && P.playing && !isRecording()) pause();
 });
 
@@ -745,9 +830,10 @@ const MODE_TEXT = { voice: 'Voice follow', auto: 'Auto-scroll', manual: 'Manual'
 function updateHud() {
   $('#playBtn').innerHTML = P.playing || P.counting ? ICON_PAUSE : ICON_PLAY;
   $('#recBtn').classList.toggle('on', isRecording());
-  let label = MODE_TEXT[settings.mode];
-  if (settings.mode === 'voice') label += ` · ${settings.lang}`;
-  if (settings.mode === 'auto') label += ` · ${settings.wpm} wpm`;
+  let label = MODE_TEXT[engine()];
+  if (P.engineOverride) label += ' (mic busy)';
+  if (engine() === 'voice') label += ` · ${settings.lang}`;
+  if (engine() === 'auto') label += ` · ${autoWpm()} wpm`;
   if (!P.playing) label += P.pos > 0 && P.pos < P.words.length ? ' · paused' : '';
   $('#modeLabel').textContent = label;
 }
@@ -833,6 +919,8 @@ function setSetting(k, v) {
   syncForm();
   applyLayout();
   const inPrompter = $('#prompter').classList.contains('active');
+  if (k === 'mode') clearFallback();
+  if (k === 'wpm') P.overrideWpm = null; // moving the slider takes over from the learned pace
   if (k === 'mode' && P.playing) { stopEngines(); startEngines(); }
   if (k === 'lang' && P.playing && settings.mode === 'voice' && before !== v) { stopRecognition(); startRecognition(); }
   if (k === 'camera' && inPrompter) { if (v) startCamera(); else stopCamera(); }
