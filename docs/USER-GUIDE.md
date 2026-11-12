@@ -74,6 +74,16 @@ Most cheap **Bluetooth page-turner / presentation clickers** send Page Up/Down o
 
 **Speech language**: the language/accent code used for recognition, e.g. `en-US`, `en-GB`, `ar-LB`, `fr-FR`. Pick the one closest to how you speak.
 
+**Voice engine**
+| Engine | How it works | Best for |
+|---|---|---|
+| **Auto** *(default)* | Browser speech while just prompting; on-device while recording | Most people |
+| **Browser** | Google/Apple speech service. Very accurate, needs internet. Can't run while recording on iPhone. | Rehearsing, languages without an on-device model |
+| **On-device** | Vosk runs on your phone. Private and offline, works while recording. One-time model download (~31–48 MB). | Privacy, offline use |
+
+Use **Download voice model now** in Settings to grab the model on Wi-Fi. Otherwise it downloads the first time you record.
+On-device languages: English (US/India), French, Spanish, German, Italian, Portuguese, Turkish, Russian, Persian, Catalan, Vietnamese. For other languages, a recording auto-scrolls at the speaking pace EyeLine measured while voice follow was working.
+
 ### Eye contact
 | Setting | What it does | Suggested |
 |---|---|---|
@@ -124,7 +134,8 @@ The format is **MP4** where the browser supports it (Safari and recent Chrome), 
 |---|---|
 | "Camera needs HTTPS" / no camera prompt | Open the app over `https://` (or `localhost`) |
 | Voice follow doesn't move | Check the green dot is on and turn on *Show what the mic hears*. Set the right **Speech language**. Check the mic permission in the browser's site settings. |
-| Voice follow stops while recording | Your phone can't share the mic between the two. Use **Auto** mode for that take, or turn off *Record audio*. |
+| "Mic busy" / auto-scroll during a take | Browser speech can't share the mic with recording. Set **Voice engine** to *Auto* or *On-device* (needs a supported language). |
+| Voice model download is slow | It's a one-time download of about 40 MB. Use **Download voice model now** on Wi-Fi. |
 | It jumped to the wrong place | Tap the word you're on. It continues from there. |
 | Android beeps when listening starts | That's Chrome's speech engine restarting after silence. Lower the media volume. |
 | Filter missing from the saved video | Your browser can't burn filters into the video (older Safari). The app warns you when this happens. |

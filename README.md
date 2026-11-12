@@ -32,6 +32,7 @@ Good phone teleprompters are expensive subscriptions. The basic idea isn't compl
 - It listens while you talk and scrolls with you. No foot pedal, no fixed speed.
 - It tolerates misheard words, "um"s, ad-libs and skipped sentences, and catches up when you're back on script.
 - Words you've said are highlighted and the current word is underlined, similar to PowerCue.
+- **On-device engine** (Vosk, WebAssembly): works **while recording, including on iPhone**, offline and private. It's limited to your script's vocabulary, which makes it accurate. The model is a one-time download of about 40 MB.
 - It works in many languages, including Arabic and other right-to-left scripts.
 
 **🎬 Built-in recording**
@@ -116,19 +117,22 @@ Details: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**, including how to publish 
 |---|:-:|:-:|:-:|
 | Prompter, auto & manual scroll | ✅ | ✅ | ✅ |
 | Voice follow | ✅ | ✅ iOS 14.5+ | ✅ |
+| Voice follow **while recording** | ✅ on-device | ✅ on-device | ✅ |
 | Recording (camera + mic) | ✅ MP4/WebM | ✅ MP4 | ✅ |
 | Filters recorded into the video | ✅ | Safari 18+ | ✅ |
 | Keep screen awake | ✅ | iOS 16.4+ | ✅ |
 
 Firefox doesn't support speech recognition, so it falls back to auto-scroll.
 
-**Known limitation:** some phones won't let voice follow and audio recording use the microphone at the same time. If voice follow stops while recording, the app shows a message. Use **Auto** mode for that take, or turn off **Record audio**.
+**Voice follow while recording:** browsers' built-in speech recognition can't share the microphone with a recording (notably on iPhone). So while recording, EyeLine switches to its **on-device engine**, which listens to the same mic stream that's being recorded. On-device models exist for English, French, Spanish, German, Italian, Portuguese, Turkish, Russian, Persian, Catalan and Vietnamese. For other languages (e.g. Arabic), a recording auto-scrolls at your measured speaking pace instead.
 
 ## Privacy
 
 - Scripts and settings stay **on your device** (browser local storage). There's no account, no analytics and no server-side storage.
 - Recordings never leave your phone unless you share them.
-- **Voice follow uses your browser's built-in speech recognition.** On most phones (Chrome / Safari), the browser sends the audio to Google's or Apple's speech service to transcribe it. EyeLine itself never sends or stores audio. If that matters for a recording, use **Auto** or **Manual** mode.
+- **Voice engine "Browser"** uses your browser's built-in speech recognition. On most phones (Chrome / Safari), the browser sends the audio to Google's or Apple's speech service to transcribe it.
+- **Voice engine "On-device"** runs entirely on your phone. Audio never leaves it. Choose it in Settings if privacy matters, or use **Auto** / **Manual** scroll.
+- EyeLine itself never sends or stores audio.
 
 ## How it works
 
@@ -141,6 +145,8 @@ index.html       UI markup (home, editor, prompter, settings, result)
 style.css        All styling
 app.js           App logic: scripts, prompter, voice engine, camera, recording, audio, settings
 matcher.js       Speech → script alignment (pure functions, unit tested)
+local-asr.js     On-device speech recognition (Vosk WASM) that shares the mic with the recording
+vendor/          vosk-browser (Apache-2.0)
 sw.js            Service worker (offline support)
 test/            Node tests for the matcher (npm test)
 Dockerfile       nginx image for self-hosting

@@ -14,6 +14,7 @@ const store = {
 const DEFAULTS = {
   mode: 'voice',            // voice | auto | manual
   lang: navigator.language || 'en-US',
+  voiceEngine: 'auto',      // auto | browser | device (on-device Vosk)
   wpm: 140,
   anchor: 'top',            // top | left | right
   topOffset: 8,
@@ -270,11 +271,85 @@ const engine = () => P.engineOverride || settings.mode;
 const autoWpm = () => P.overrideWpm || settings.wpm;
 
 function startEngines() {
-  if (engine() === 'voice') startRecognition();
+  if (engine() === 'voice') { if (useLocal()) startLocal(); else startRecognition(); }
   else if (engine() === 'auto') startAuto();
   updateHud();
 }
-function stopEngines() { stopRecognition(); stopAuto(); setMic(false); savePace(); }
+function stopEngines() { stopRecognition(); stopLocal(); stopAuto(); setMic(false); savePace(); }
+
+/* ---------- on-device voice follow (shares the mic with the recording) ---------- */
+const hasBrowserSpeech = () => !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+function useLocal() {
+  if (!LocalASR.supported(settings.lang)) return false;
+  if (settings.voiceEngine === 'device') return true;
+  if (settings.voiceEngine === 'browser') return !hasBrowserSpeech();
+  return (isRecording() && !!P.audio) || !hasBrowserSpeech(); // auto
+}
+// Will the next recording use on-device recognition? (decided before the mic is opened)
+function willUseLocalForRecording() {
+  if (settings.mode !== 'voice' || !LocalASR.supported(settings.lang)) return false;
+  if (settings.voiceEngine === 'device') return true;
+  if (settings.voiceEngine === 'browser') return !hasBrowserSpeech();
+  return settings.recordAudio || !hasBrowserSpeech();
+}
+
+function showModelProgress(p) {
+  const el = $('#countdown');
+  const m = LocalASR.info(settings.lang);
+  el.classList.add('msg');
+  el.hidden = false;
+  el.textContent = LocalASR.isDownloaded(settings.lang)
+    ? 'Starting on-device voice…'
+    : `Downloading voice model (${m ? m.mb : 40} MB, one time only)… ${Math.round(p * 100)}%`;
+}
+function hideModelProgress() {
+  const el = $('#countdown');
+  el.classList.remove('msg');
+  if (!P.counting) el.hidden = true;
+}
+
+async function startLocal() {
+  stopRecognition();
+  const token = {};
+  P.localToken = token;
+  try {
+    if (!LocalASR.isReady(settings.lang)) {
+      showModelProgress(0);
+      await LocalASR.prepare(settings.lang, showModelProgress);
+      hideModelProgress();
+    }
+    if (P.localToken !== token || !P.playing) return;
+    let stream = P.audio; // the recording's mic: one mic, two listeners
+    if (!stream) { P.asrMic = await getMic(); stream = P.asrMic; }
+    if (P.localToken !== token || !P.playing) { stopLocal(); return; }
+    LocalASR.start(stream, current ? current.text : '', handleTranscript);
+    P.localActive = true;
+    setMic(true);
+    updateHud();
+  } catch (err) {
+    hideModelProgress();
+    if (P.localToken !== token) return;
+    P.localActive = false;
+    const why = `On-device voice follow couldn’t start (${err && err.message ? err.message : err}).`;
+    if (isRecording() || !hasBrowserSpeech()) fallbackToAuto(why);
+    else { toast(why + ' Using browser speech instead.', 5000); startRecognition(); }
+  }
+}
+function stopLocal() {
+  P.localToken = null;
+  P.localActive = false;
+  LocalASR.stop();
+  P.asrMic?.getTracks().forEach(t => t.stop());
+  P.asrMic = null;
+}
+
+function handleTranscript(text) {
+  const t = String(text).replace(/\[unk\]/gi, ' ');
+  if (settings.showHeard) $('#heard').textContent = '🎙 ' + t.trim().split(/\s+/).slice(-7).join(' ');
+  pulseMic();
+  const np = findNext(P.norms, P.pos, splitWords(t).slice(-8));
+  if (np > P.pos) { setPos(np, { fromEngine: true }); trackPace(); }
+}
 function restartEngineAfterJump() { if (P.playing && engine() === 'auto') P.autoF = P.pos; }
 
 // Learn the speaker's real pace from voice follow, used when we must fall back to auto-scroll.
@@ -343,7 +418,8 @@ function stopAuto() { cancelAnimationFrame(P.raf); P.raf = 0; }
 function startRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
-    toast('Voice follow isn’t supported in this browser (use Chrome on Android or Safari on iPhone). Switching to auto-scroll.', 5000);
+    if (LocalASR.supported(settings.lang)) { startLocal(); return; }
+    toast('Voice follow isn’t available for this browser/language. Switching to auto-scroll.', 5000);
     settings.mode = 'auto'; saveSettings(); syncForm(); applyLayout();
     startAuto(); updateHud();
     return;
@@ -362,17 +438,13 @@ function startRecognition() {
     ends = [];
     let t = '';
     for (let k = 0; k < e.results.length; k++) t += ' ' + e.results[k][0].transcript;
-    const spoken = splitWords(t);
-    if (settings.showHeard) $('#heard').textContent = '🎙 ' + t.trim().split(/\s+/).slice(-7).join(' ');
-    pulseMic();
-    const np = findNext(P.norms, P.pos, spoken.slice(-8));
-    if (np > P.pos) { setPos(np, { fromEngine: true }); trackPace(); }
+    handleTranscript(t);
   };
   r.onerror = e => {
     if (e.error === 'no-speech' || e.error === 'aborted') return; // normal; onend restarts
     if (isRecording()) {
       // Never stop the take: keep the prompter moving instead.
-      fallbackToAuto(e.error === 'network'
+      browserFailedWhileRecording(e.error === 'network'
         ? 'Voice follow lost its connection.'
         : 'This phone can’t use the mic for voice follow while recording.');
     } else if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
@@ -391,7 +463,7 @@ function startRecognition() {
     const now = Date.now();
     ends = ends.filter(t => now - t < 10000).concat(now);
     if (isRecording() && ends.length >= 4) {
-      fallbackToAuto('Voice follow isn’t getting the mic while recording.');
+      browserFailedWhileRecording('Voice follow isn’t getting the mic while recording.');
       return;
     }
     // browsers end recognition after silence / ~60s — restart transparently
@@ -400,6 +472,17 @@ function startRecognition() {
     }, 120);
   };
   try { r.start(); } catch { /* ignore */ }
+}
+// Browser speech can't share the mic with the recording: switch to on-device if we can.
+function browserFailedWhileRecording(reason) {
+  if (P.audio && LocalASR.supported(settings.lang) && LocalASR.isDownloaded(settings.lang)) {
+    stopRecognition();
+    toast('Switched to on-device voice follow for this take.', 3500);
+    startLocal();
+  } else {
+    fallbackToAuto(reason + (LocalASR.supported(settings.lang)
+      ? ' (Tip: set Voice engine to Auto or On-device to keep voice follow while recording.)' : ''));
+  }
 }
 function stopRecognition() {
   const r = P.recog;
@@ -690,6 +773,17 @@ async function toggleRecord() {
   pause();
   if (!(await prepareRecording())) return;
   if (P.pos >= P.words.length) setPos(0);
+  // Load the on-device voice model before the countdown so the take starts instantly.
+  if (willUseLocalForRecording() && !LocalASR.isReady(settings.lang)) {
+    try {
+      showModelProgress(0);
+      await LocalASR.prepare(settings.lang, showModelProgress);
+    } catch (err) {
+      toast(`Couldn’t load on-device voice (${err.message || err}). The take will auto-scroll at your pace.`, 5000);
+    } finally {
+      hideModelProgress();
+    }
+  }
   const go = await countdown(settings.countdown);
   if (!go) { releaseAudio(); P.recorder = null; updateHud(); return; }
   P.recorder.start(1000);
@@ -832,7 +926,7 @@ function updateHud() {
   $('#recBtn').classList.toggle('on', isRecording());
   let label = MODE_TEXT[engine()];
   if (P.engineOverride) label += ' (mic busy)';
-  if (engine() === 'voice') label += ` · ${settings.lang}`;
+  if (engine() === 'voice') label += P.localActive ? ` · on-device · ${settings.lang}` : ` · ${settings.lang}`;
   if (engine() === 'auto') label += ` · ${autoWpm()} wpm`;
   if (!P.playing) label += P.pos > 0 && P.pos < P.words.length ? ' · paused' : '';
   $('#modeLabel').textContent = label;
@@ -905,7 +999,45 @@ function syncForm() {
   $$('#settings [data-show]').forEach(f => { f.hidden = f.dataset.show !== settings.mode; });
   $('#modeHelp').textContent = MODE_HELP[settings.mode];
   $('#audioHelp').textContent = AUDIO_HELP[settings.audioMode];
+  $('#engineHelp').textContent = ENGINE_HELP[settings.voiceEngine];
+  updateModelUI();
 }
+const ENGINE_HELP = {
+  auto: 'Browser speech normally; switches to on-device while recording, so voice follow keeps working on iPhone.',
+  browser: 'Google/Apple speech service. Very accurate, needs internet. On iPhone it can’t run while recording.',
+  device: 'Runs entirely on your phone: private, works offline and while recording. One-time model download.',
+};
+function updateModelUI() {
+  const btn = $('#modelBtn'), st = $('#modelStatus');
+  if (!btn) return;
+  const m = LocalASR.info(settings.lang);
+  if (!m) {
+    btn.hidden = true;
+    st.textContent = `On-device voice isn’t available for “${settings.lang}” yet (available: English, French, Spanish, German, Italian, Portuguese, Turkish, Russian, Persian, Catalan, Vietnamese). Recording will auto-scroll at your pace instead.`;
+    return;
+  }
+  btn.hidden = false;
+  if (LocalASR.isDownloaded(settings.lang)) {
+    btn.textContent = 'Voice model downloaded ✓';
+    btn.disabled = true;
+    st.textContent = '';
+  } else {
+    btn.textContent = `Download voice model now (${m.mb} MB)`;
+    btn.disabled = false;
+    st.textContent = 'Do it on Wi-Fi. Otherwise it downloads the first time you record.';
+  }
+}
+$('#modelBtn').addEventListener('click', async () => {
+  const btn = $('#modelBtn');
+  btn.disabled = true;
+  try {
+    await LocalASR.prepare(settings.lang, p => { btn.textContent = `Downloading… ${Math.round(p * 100)}%`; });
+    toast('Voice model ready — voice follow now works while recording.');
+  } catch (err) {
+    toast(`Download failed: ${err.message || err}`);
+  }
+  updateModelUI();
+});
 const AUDIO_HELP = {
   natural: 'Raw microphone, no processing. Best with an external mic in a quiet room.',
   clean: 'Removes background noise like fans, AC and traffic hum.',
@@ -922,7 +1054,8 @@ function setSetting(k, v) {
   if (k === 'mode') clearFallback();
   if (k === 'wpm') P.overrideWpm = null; // moving the slider takes over from the learned pace
   if (k === 'mode' && P.playing) { stopEngines(); startEngines(); }
-  if (k === 'lang' && P.playing && settings.mode === 'voice' && before !== v) { stopRecognition(); startRecognition(); }
+  if ((k === 'lang' || k === 'voiceEngine') && P.playing && engine() === 'voice' && before !== v) { stopEngines(); startEngines(); }
+  if (k === 'lang' || k === 'voiceEngine') updateModelUI();
   if (k === 'camera' && inPrompter) { if (v) startCamera(); else stopCamera(); }
   if (k === 'facing' && inPrompter && before !== v) { stopCamera(); startCamera(); }
   updateHud();

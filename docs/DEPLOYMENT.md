@@ -12,6 +12,10 @@ EyeLine is a static site: a few HTML, CSS and JS files. The only hard requiremen
 
 The container has a health check, so Coolify only switches traffic once nginx is answering.
 
+**Voice models:** the image downloads the English on-device model at build time (served from `/models/` on your domain). To add languages, set the build argument `VOSK_MODELS` (space-separated), e.g.
+`vosk-model-small-en-us-0.15 vosk-model-small-fr-pguyot-0.3 vosk-model-small-es-0.3`.
+See `local-asr.js` for the list. Missing models are fetched from the public vosk-browser mirror instead.
+
 ## Docker
 
 ```bash

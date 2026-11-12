@@ -73,6 +73,21 @@ Cost per result: about 60 candidates × an 8 × 11 LCS, a few thousand compariso
 
 `npm test` runs these scenarios.
 
+### Two recognition engines
+| | Browser (`SpeechRecognition`) | On-device (`local-asr.js`) |
+|---|---|---|
+| Engine | Google / Apple cloud (or OS) | [Vosk](https://alphacephei.com/vosk/) small models, Kaldi compiled to WebAssembly via [vosk-browser](https://github.com/ccoreilly/vosk-browser), in a Web Worker |
+| Audio source | Opens the mic **itself** | **Any MediaStream we pass**, i.e. the same mic stream that's being recorded |
+| Works while recording on iPhone | ❌ | ✅ |
+| Vocabulary | Open | Restricted to the script's words + `[unk]` (a Vosk grammar), which greatly improves accuracy for small models |
+| Network | Usually required | One-time model download, then offline |
+
+The on-device pipeline: mic `MediaStream` → `AudioContext` → `ScriptProcessorNode` (4096 frames) → `recognizer.acceptWaveform()` → `partialresult` / `result` events → the same `handleTranscript()` → `findNext()` path as the browser engine.
+
+Models are served from `/models/` on your own server (downloaded at Docker build time, `VOSK_MODELS` build arg) with a fallback to the vosk-browser public mirror. Vosk stores the extracted model in IndexedDB, so it only downloads once per device.
+
+**Why not Whisper?** Whisper is more accurate and multilingual (including Arabic), but it transcribes in multi-second chunks and isn't a streaming recogniser. On a phone CPU, word-level latency would be seconds, which is too slow to scroll with a speaker. It would be a good fit for generating captions *after* a take.
+
 ### Recognition lifecycle
 Browsers end recognition after silence or roughly a minute. `onend` restarts it transparently while prompting. Permission errors and `audio-capture` (the mic is busy, usually because recording is holding it) show a toast explaining what to do.
 

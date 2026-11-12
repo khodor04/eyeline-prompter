@@ -104,6 +104,15 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
         <option value="it-IT"><option value="pt-BR"><option value="tr-TR"><option value="nl-NL">
       </datalist>
     </div>
+    <div class="field" data-show="voice">
+      <span class="lbl">Voice engine</span>
+      <div class="seg" data-k="voiceEngine">
+        <button data-v="auto">Auto</button><button data-v="browser">Browser</button><button data-v="device">On-device</button>
+      </div>
+      <small id="engineHelp" class="help"></small>
+      <button class="btn" id="modelBtn" type="button"></button>
+      <small id="modelStatus" class="help"></small>
+    </div>
     <div class="field" data-show="auto">
       <label class="lbl">Speed <output data-o="wpm"></output></label>
       <input type="range" data-k="wpm" min="60" max="260" step="5">
@@ -200,6 +209,7 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="matcher.js"></script>
+<script src="local-asr.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
