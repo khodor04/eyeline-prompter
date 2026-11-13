@@ -265,3 +265,7 @@ h3 { margin: 22px 0 2px; font-size: 13px; text-transform: uppercase; letter-spac
   transition: opacity .25s, transform .25s;
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* audio-only recording */
+#recBtn.mic { border-color: #ff6b6b; }
+#resultVideo.audio { height: 64px; background: #16161d; }

@@ -101,6 +101,7 @@ On-device languages: English (US/India), French, Spanish, German, Italian, Portu
 ### Camera & recording
 | Setting | What it does |
 |---|---|
+| Record: Video / Audio only | **Audio only** keeps the camera off and records just your voice (.m4a on iPhone, .webm on Android), e.g. for voice-overs and podcasts. Voice follow and the audio modes still work. Also switchable from the **🎥 Video / 🎙 Audio only** button on the prompter screen. |
 | Show camera behind text | Live camera preview. Turn it off for a plain black prompter. |
 | Mirror the preview | Selfie-style flipped preview. Off by default, so the preview matches the saved video. |
 | Mirror the saved video | Saves a flipped video. Off by default: the video is saved exactly as the camera sees it. |

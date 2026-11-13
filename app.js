@@ -6,7 +6,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const { splitWords, findNext } = window.Matcher;
 
 // Keep in sync with the ?v= query strings in index.html and CACHE in sw.js.
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 // If the on-device engine script failed to load (e.g. a stale cache), keep the app working.
 const LocalASR = window.LocalASR || {
@@ -43,6 +43,7 @@ const DEFAULTS = {
   mirrorPreview: false,     // preview = exactly what gets recorded
   mirrorRecording: false,   // saved video is never flipped unless asked
   recordAudio: true,
+  recordWhat: 'video',      // video | audio (audio only: the camera stays off)
   audioMode: 'clean',       // natural | clean | studio
   micId: '',                // '' = default microphone
   countdown: 3,
@@ -302,7 +303,7 @@ function willUseLocalForRecording() {
   if (settings.mode !== 'voice' || !LocalASR.supported(settings.lang)) return false;
   if (settings.voiceEngine === 'device') return true;
   if (settings.voiceEngine === 'browser') return !hasBrowserSpeech();
-  return settings.recordAudio || !hasBrowserSpeech();
+  return settings.recordAudio || audioOnly() || !hasBrowserSpeech();
 }
 
 function showModelProgress(p) {
@@ -581,6 +582,11 @@ $('#filterBtn').addEventListener('click', () => {
   f.hidden = !f.hidden;
   $('#filterBtn').classList.toggle('on', !f.hidden);
 });
+$('#recWhatBtn').addEventListener('click', () => {
+  if (isRecording() || P.counting) { toast('Stop recording first'); return; }
+  setSetting('recordWhat', audioOnly() ? 'video' : 'audio');
+  toast(audioOnly() ? 'Audio only — the camera is off. Press ● to record your voice.' : 'Video — camera on.');
+});
 $('#brightness').addEventListener('input', e => setSetting('brightness', +e.target.value));
 $('#flipBtn').addEventListener('click', async () => {
   if (isRecording()) { toast('Stop recording before switching cameras'); return; }
@@ -589,15 +595,25 @@ $('#flipBtn').addEventListener('click', async () => {
 });
 
 /* ------------------------------------------------------------------ camera & recording */
-async function startCamera() {
-  if (!settings.camera || P.stream) { $('#cam').hidden = !settings.camera; return; }
+const audioOnly = () => settings.recordWhat === 'audio';
+const wantCamera = () => settings.camera && !audioOnly();
+// One camera request at a time: overlapping calls used to open a second stream that
+// was never stopped (camera light stayed on).
+function startCamera() {
+  if (!wantCamera() || P.stream) { $('#cam').hidden = !wantCamera(); return Promise.resolve(); }
+  return P.camStarting || (P.camStarting = openCamera().finally(() => { P.camStarting = null; }));
+}
+async function openCamera() {
   if (!navigator.mediaDevices?.getUserMedia) { toast('Camera needs HTTPS (or localhost).'); return; }
+  const facing = settings.facing;
   try {
-    P.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: settings.facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
       audio: false,
     });
-    if (!$('#prompter').classList.contains('active')) { stopCamera(); return; }
+    if (!$('#prompter').classList.contains('active') || !wantCamera()) { s.getTracks().forEach(t => t.stop()); return; }
+    if (facing !== settings.facing) { s.getTracks().forEach(t => t.stop()); return openCamera(); } // flipped while opening
+    P.stream = s;
     const v = $('#cam');
     v.srcObject = P.stream;
     v.hidden = false;
@@ -621,7 +637,13 @@ function stopCamera() {
 }
 
 function pickMime() {
-  const types = [
+  const types = audioOnly() ? [
+    'audio/mp4;codecs=mp4a.40.2',
+    'audio/mp4',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+  ] : [
     'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
     'video/mp4;codecs=avc1,mp4a',
     'video/mp4',
@@ -634,6 +656,7 @@ function pickMime() {
 
 async function prepareRecording() {
   if (!window.MediaRecorder) { toast('Recording isn’t supported in this browser.'); return false; }
+  if (audioOnly()) return prepareAudioRecording();
   if (!P.stream) {
     settings.camera = true; saveSettings(); syncForm();
     await startCamera();
@@ -654,6 +677,26 @@ async function prepareRecording() {
   try {
     P.recorder = new MediaRecorder(new MediaStream(tracks), mimeType
       ? { mimeType, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 192_000 } : undefined);
+  } catch {
+    P.recorder = new MediaRecorder(new MediaStream(tracks));
+  }
+  P.chunks = [];
+  P.recorder.ondataavailable = e => { if (e.data && e.data.size) P.chunks.push(e.data); };
+  P.recorder.onstop = finishRecording;
+  return true;
+}
+// Audio only: just the microphone, no camera at all.
+async function prepareAudioRecording() {
+  try {
+    P.audio = await getMic();
+  } catch (err) {
+    toast('Microphone unavailable: ' + (err.name === 'NotAllowedError' ? 'permission denied' : err.message || err.name));
+    return false;
+  }
+  const tracks = settings.audioMode === 'studio' ? processAudio(P.audio) : P.audio.getAudioTracks();
+  const mimeType = pickMime();
+  try {
+    P.recorder = new MediaRecorder(new MediaStream(tracks), mimeType ? { mimeType, audioBitsPerSecond: 192_000 } : undefined);
   } catch {
     P.recorder = new MediaRecorder(new MediaStream(tracks));
   }
@@ -820,7 +863,7 @@ function stopRecording() {
   if (!P.recorder) recoverCamera();
 }
 function finishRecording() {
-  const type = P.recorder?.mimeType || pickMime() || 'video/webm';
+  const type = P.recorder?.mimeType || pickMime() || (audioOnly() ? 'audio/webm' : 'video/webm');
   const blob = new Blob(P.chunks, { type: type.split(';')[0] });
   P.chunks = [];
   P.recorder = null;
@@ -832,11 +875,19 @@ function finishRecording() {
   P.resultUrl = URL.createObjectURL(blob);
   const v = $('#resultVideo');
   v.src = P.resultUrl;
-  $('#resultInfo').textContent = `${(blob.size / 1048576).toFixed(1)} MB · ${blob.type.includes('mp4') ? 'MP4' : 'WebM'}`;
+  const isAudio = blob.type.startsWith('audio');
+  v.classList.toggle('audio', isAudio);
+  $('#resultTitle').textContent = isAudio ? 'Your audio take' : 'Your take';
+  $('#resultInfo').textContent = `${(blob.size / 1048576).toFixed(1)} MB · ${fileExt(blob).toUpperCase()}`;
   $('#result').hidden = false;
 }
+function fileExt(blob) {
+  const t = blob?.type || '';
+  if (t.startsWith('audio')) return t.includes('mp4') ? 'm4a' : t.includes('ogg') ? 'ogg' : 'webm';
+  return t.includes('mp4') ? 'mp4' : 'webm';
+}
 function resultFileName() {
-  const ext = P.resultBlob?.type.includes('mp4') ? 'mp4' : 'webm';
+  const ext = fileExt(P.resultBlob);
   const name = (current?.title || 'take').replace(/[^\p{L}\p{N}\- ]+/gu, '').trim().replace(/\s+/g, '-') || 'take';
   const d = new Date();
   const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
@@ -897,7 +948,7 @@ $('#result').addEventListener('click', e => { if (e.target.id === 'result') clos
 
 // Make sure the live camera is running again (after playback, a phone call, app switching...).
 async function recoverCamera() {
-  if (!$('#prompter').classList.contains('active') || !settings.camera || isRecording()) return;
+  if (!$('#prompter').classList.contains('active') || !wantCamera() || isRecording()) return;
   const track = P.stream?.getVideoTracks()[0];
   if (!track || track.readyState === 'ended' || track.muted) {
     P.stream?.getTracks().forEach(t => t.stop());
@@ -934,6 +985,14 @@ const ICON_PAUSE = '<svg viewBox="0 0 24 24"><rect x="6.5" y="5.5" width="4" hei
 const MODE_TEXT = { voice: 'Voice follow', auto: 'Auto-scroll', manual: 'Manual' };
 
 function updateHud() {
+  const ao = audioOnly();
+  $('#recWhatBtn').textContent = ao ? '🎙 Audio only' : '🎥 Video';
+  $('#recWhatBtn').classList.toggle('on', ao);
+  $('#flipBtn').hidden = ao;
+  $('#filterBtn').hidden = ao;
+  if (ao) { $('#filters').hidden = true; $('#filterBtn').classList.remove('on'); }
+  $('#recBtn').classList.toggle('mic', ao);
+  $('#recBtn').setAttribute('aria-label', ao ? 'Record audio' : 'Record video');
   $('#playBtn').innerHTML = P.playing || P.counting ? ICON_PAUSE : ICON_PLAY;
   $('#recBtn').classList.toggle('on', isRecording());
   let label = MODE_TEXT[engine()];
@@ -1073,7 +1132,7 @@ function setSetting(k, v) {
   if (k === 'mode' && P.playing) { stopEngines(); startEngines(); }
   if ((k === 'lang' || k === 'voiceEngine') && P.playing && engine() === 'voice' && before !== v) { stopEngines(); startEngines(); }
   if (k === 'lang' || k === 'voiceEngine') updateModelUI();
-  if (k === 'camera' && inPrompter) { if (v) startCamera(); else stopCamera(); }
+  if ((k === 'camera' || k === 'recordWhat') && inPrompter) { if (wantCamera()) startCamera(); else stopCamera(); }
   if (k === 'facing' && inPrompter && before !== v) { stopCamera(); startCamera(); }
   updateHud();
 }

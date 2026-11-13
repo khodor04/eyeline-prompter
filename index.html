@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="style.css?v=1.3.0">
+  <link rel="stylesheet" href="style.css?v=1.4.0">
 </head>
 <body>
 
@@ -61,6 +61,7 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
       <label>Brightness <input type="range" id="brightness" min="70" max="140" step="1"></label>
     </div>
     <div id="tools">
+      <button id="recWhatBtn" class="pill">🎥 Video</button>
       <button id="flipBtn" class="pill">Flip camera</button>
       <button id="filterBtn" class="pill">Filters</button>
     </div>
@@ -163,6 +164,13 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
     <label class="field switch"><span class="lbl">Mirror text (for glass teleprompter rigs)</span><input type="checkbox" data-k="mirror"></label>
 
     <h3>Camera &amp; recording</h3>
+    <div class="field">
+      <span class="lbl">Record</span>
+      <div class="seg" data-k="recordWhat">
+        <button data-v="video">Video</button><button data-v="audio">Audio only</button>
+      </div>
+      <small class="help">Audio only keeps the camera off and saves just your voice (M4A on iPhone, WebM on Android). You can also switch it from the prompter screen.</small>
+    </div>
     <label class="field switch"><span class="lbl">Show camera behind text</span><input type="checkbox" data-k="camera"></label>
     <label class="field switch"><span class="lbl">Mirror the preview (selfie view)</span><input type="checkbox" data-k="mirrorPreview"></label>
     <label class="field switch"><span class="lbl">Mirror the saved video</span><input type="checkbox" data-k="mirrorRecording"></label>
@@ -195,7 +203,7 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
 <div id="result" class="sheet" hidden>
   <div class="panel">
     <div class="panel-head">
-      <div><h2>Your take</h2><span id="resultInfo" class="muted"></span></div>
+      <div><h2 id="resultTitle">Your take</h2><span id="resultInfo" class="muted"></span></div>
       <button class="btn" id="resultClose">Close</button>
     </div>
     <video id="resultVideo" controls playsinline></video>
@@ -209,8 +217,8 @@ Use [brackets] for cues like [smile] or [pause] — they’re shown but you don�
 
 <div id="toast" role="status" aria-live="polite"></div>
 
-<script src="matcher.js?v=1.3.0"></script>
-<script src="local-asr.js?v=1.3.0"></script>
-<script src="app.js?v=1.3.0"></script>
+<script src="matcher.js?v=1.4.0"></script>
+<script src="local-asr.js?v=1.4.0"></script>
+<script src="app.js?v=1.4.0"></script>
 </body>
 </html>

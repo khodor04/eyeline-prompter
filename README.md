@@ -37,6 +37,7 @@ Good phone teleprompters are expensive subscriptions. The basic idea isn't compl
 
 **🎬 Built-in recording**
 - Records with your phone's camera and microphone. The video is saved **exactly as the camera sees it** (never flipped).
+- **Audio only** recording when you don't need video: the camera stays off and you get an .m4a/.webm voice file.
 - Filters (Bright, Warm, Cool, Vivid, Soft, Film, B&W) and a brightness slider are recorded into the video.
 - Front/back camera switch, countdown, and a recording timer.
 - Audio modes: **Natural**, **Noise reduction** and **Studio voice** (rumble cut, voice clarity, leveling, soft noise gate).
@@ -119,6 +120,7 @@ Details: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**, including how to publish 
 | Voice follow | ✅ | ✅ iOS 14.5+ | ✅ |
 | Voice follow **while recording** | ✅ on-device | ✅ on-device | ✅ |
 | Recording (camera + mic) | ✅ MP4/WebM | ✅ MP4 | ✅ |
+| Audio-only recording | ✅ WebM | ✅ M4A | ✅ |
 | Filters recorded into the video | ✅ | Safari 18+ | ✅ |
 | Keep screen awake | ✅ | iOS 16.4+ | ✅ |
 

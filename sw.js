@@ -1,6 +1,6 @@
 // Network-first so updates show up immediately; cache fallback for offline use.
 // Voice models (/models/) are NOT cached here: the speech engine stores them in IndexedDB itself.
-const CACHE = 'eyeline-v3';
+const CACHE = 'eyeline-v4';
 const ASSETS = ['./', 'index.html', 'style.css', 'matcher.js', 'local-asr.js', 'app.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
