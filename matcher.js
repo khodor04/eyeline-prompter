@@ -63,36 +63,59 @@
     return dp[b.length];
   }
 
+  // Short words ("the", "to", "a") are everywhere, so they're weaker evidence.
+  const weight = w => (w.length >= 4 ? 1 : 0.6);
+
+  /**
+   * How well do the last words heard line up with the script *ending at* words[j]?
+   * Walks backwards through both, word by word, so the evidence has to be the same
+   * words in the same order right next to each other — not a few common words
+   * scattered over a paragraph. Tolerates a skipped, extra or misheard word (≤2).
+   */
+  function suffixScore(tail, words, j) {
+    let t = tail.length - 2, w = j - 1, skips = 0;
+    let score = weight(words[j]);
+    while (t >= 0 && w >= 0) {
+      if (sim(tail[t], words[w])) { score += weight(words[w]); t--; w--; continue; }
+      if (++skips > 2) break;
+      if (w >= 1 && sim(tail[t], words[w - 1])) w--;          // reader skipped a script word
+      else if (t >= 1 && sim(tail[t - 1], words[w])) t--;     // extra / repeated spoken word
+      else { t--; w--; }                                      // misheard word
+    }
+    return score - 0.3 * Math.min(skips, 2);
+  }
+
   /**
    * Given the script words (normalized), the current position (index of next
    * word to read) and the tail of what was just heard, return the new position
    * (index after the last word spoken) or -1 if no confident match.
+   * The result can be *behind* pos when the speaker clearly repeats earlier text.
    */
-  function findNext(words, pos, tail, ahead = 60) {
+  function findNext(words, pos, tail, ahead = 60, behind = 60) {
     const m = tail.length;
     if (!m || !words.length) return -1;
     const last = tail[m - 1];
-    const head = tail.slice(0, -1);
-    const from = Math.max(0, pos - 3);
+    const from = Math.max(0, pos - behind);
     const to = Math.min(words.length - 1, pos + ahead);
-    let best = -1, bestVal = -Infinity;
+    let best = -1, bestVal = -Infinity, bestScore = 0;
     for (let j = from; j <= to; j++) {
       if (!sim(last, words[j])) continue;
-      const start = Math.max(0, j - m - 3);
-      const score = 1 + (head.length ? lcs(head, words.slice(start, j)) : 0);
-      const dist = j - pos;
-      // the further we jump, the more evidence we require
-      const need = dist <= 2 ? 1 : dist <= 10 ? 2 : 3;
-      if (score < Math.min(need, m)) continue;
-      if (dist > 2) {
-        // evidence must come from words *ahead* of the reader, not already-read history
-        const fresh = 1 + (head.length ? lcs(head, words.slice(pos, j)) : 0);
-        if (fresh < need) continue;
-      }
-      const val = score - Math.abs(dist) * 0.06;
-      if (val > bestVal) { bestVal = val; best = j; }
+      const dist = j - pos; // 0 = the next word, -1 = the word just read
+      const near = dist >= -3 && dist <= 2;
+      // A real jump must end on the last two words heard, side by side in the script.
+      if (!near && (m < 2 || j < 1 || !sim(tail[m - 2], words[j - 1]))) continue;
+      // the further we move, the more evidence we require
+      const need = dist < -3 ? 3 : near ? 0.6 : dist <= 10 ? 1.8 : 2.6;
+      const score = suffixScore(tail, words, j);
+      if (score < need) continue;
+      const val = score - Math.abs(dist) * 0.05 + (near ? 0.5 : 0);
+      if (val > bestVal) { bestVal = val; best = j; bestScore = score; }
     }
-    return best >= 0 ? best + 1 : -1;
+    if (best < 0) return -1;
+    // Going back (re-reading) needs ~4 words in a row; a weaker match near the
+    // reader just means "still here".
+    if (best + 1 < pos && bestScore < 3) return pos;
+    return best + 1;
   }
 
   const api = { norm, splitWords, sim, lcs, findNext };

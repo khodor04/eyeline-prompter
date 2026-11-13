@@ -7,13 +7,17 @@ const SCRIPT = "Hey everyone, welcome back to the channel. Today I'm going to sh
 const words = M.splitWords(SCRIPT);
 
 // Feed spoken words one at a time, like interim speech results, and return the final position.
-function follow(spoken) {
+// Engines re-send the same partial result several times, so each word is matched twice.
+// Like the app, the position can also move back when the speaker repeats earlier text.
+function follow(spoken, script = words) {
   let pos = 0;
   const heard = [];
   for (const w of M.splitWords(spoken)) {
     heard.push(w);
-    const next = M.findNext(words, pos, heard.slice(-8));
-    if (next > pos) pos = next;
+    for (let r = 0; r < 2; r++) {
+      const next = M.findNext(script, pos, heard.slice(-8));
+      if (next >= 0) pos = next;
+    }
   }
   return pos;
 }
@@ -63,4 +67,38 @@ test('does not jump far ahead on a single common word', () => {
 test('supports Arabic (diacritics stripped)', () => {
   const ar = M.splitWords('مَرْحَبًا بِكُمْ فِي القناة');
   assert.strictEqual(M.findNext(ar, 0, M.splitWords('مرحبا بكم')), 2);
+});
+
+const REPEATS = M.splitWords('I want to tell you a story. I want to tell you why I started this channel. It started when I was young. I want to tell you everything.');
+
+test('repeated phrases in the script: stays on the one being read', () => {
+  assert.strictEqual(follow('I want to tell you a', REPEATS), 6);
+  assert.strictEqual(follow('I want to tell you a story I want to tell you', REPEATS), 12);
+  assert.strictEqual(follow(REPEATS.join(' '), REPEATS), REPEATS.length);
+});
+
+test('re-reading a sentence follows you back instead of jumping ahead', () => {
+  const upToHome = words.indexOf('home') + 1;
+  const sentence = 'today im going to show you the three best ways to film yourself at home';
+  const first = 'hey everyone welcome back to the channel ' + sentence;
+  assert.strictEqual(follow(first), upToHome);
+  // repeat the sentence: half-way through, the highlight must be back inside it, not ahead
+  const half = follow(first + ' today im going to show you');
+  assert.ok(half < upToHome, 'moved back to the repeated words, got ' + half);
+  assert.strictEqual(words[half - 1], 'you');
+  // finish the repeat and carry on reading
+  assert.strictEqual(follow(first + ' ' + sentence), upToHome);
+  assert.strictEqual(words[follow(first + ' ' + sentence + ' without spending a fortune') - 1], 'fortune');
+});
+
+test('a single common word at the start never jumps', () => {
+  assert.strictEqual(follow('the'), 0);
+  assert.strictEqual(follow('a'), 0);
+});
+
+test('does not jump to a similar phrase further on when a word is misheard', () => {
+  const S = M.splitWords('The first thing I learned is that you have to show up every day. The third thing I learned is that you have to tell a story.');
+  // "show" heard, then a stray "a": must not leap to "...you have to tell a"
+  const p = follow('the first thing i learned is that you have to show a', S);
+  assert.ok(p <= 12, 'jumped to ' + p);
 });

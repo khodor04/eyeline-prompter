@@ -6,7 +6,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const { splitWords, findNext } = window.Matcher;
 
 // Keep in sync with the ?v= query strings in index.html and CACHE in sw.js.
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 
 // If the on-device engine script failed to load (e.g. a stale cache), keep the app working.
 const LocalASR = window.LocalASR || {
@@ -361,7 +361,10 @@ function handleTranscript(text) {
   if (settings.showHeard) $('#heard').textContent = '🎙 ' + t.trim().split(/\s+/).slice(-7).join(' ');
   pulseMic();
   const np = findNext(P.norms, P.pos, splitWords(t).slice(-8));
-  if (np > P.pos) { setPos(np, { fromEngine: true }); trackPace(); }
+  if (np < 0 || np === P.pos) return;
+  if (np < P.pos) P.pace = null; // re-reading a sentence: don't count it as speaking pace
+  setPos(np, { fromEngine: true });
+  trackPace();
 }
 function restartEngineAfterJump() { if (P.playing && engine() === 'auto') P.autoF = P.pos; }
 

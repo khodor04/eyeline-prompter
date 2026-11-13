@@ -49,17 +49,19 @@ Lower-case → strip Latin accents and Arabic diacritics/tatweel → drop apostr
 Two words match if they're equal, or if both are ≥ 4 letters and one is a prefix of the other (interim partials like `beaut` → `beautiful`, plurals), or if their Levenshtein distance is ≤ 1 (≤ 2 for words of 8+ letters). Short words must match exactly.
 
 ### Alignment (`findNext`)
-For every script index `j` in the window `[pos − 3, pos + 60]` where `script[j]` matches the **last** heard word:
+For every script index `j` in the window `[pos − 60, pos + 60]` where `script[j]` matches the **last** heard word:
 
-1. **Score** = 1 + LCS(tail without its last word, the script words just before `j`). This measures how well the recent speech lines up with the script ending at `j`.
-2. **Evidence threshold** grows with the jump distance `d = j − pos`:
-   - `d ≤ 2` → 1 matching word is enough
-   - `d ≤ 10` → 2 words
-   - further → 3 words
-3. For jumps beyond 2 words, the evidence must come from **words ahead of the reader** (LCS over `script[pos..j]`), not from words already read. Without this rule, an already-read phrase plus a common word like "the" could pull the prompter several words ahead.
-4. **Value** = score − 0.06 × |d|. The highest value wins, so ties go to the nearest candidate.
+1. **Score** (`suffixScore`) walks backwards through the heard words and the script ending at `j` *in step*: each word that lines up adds 1 (0.6 for words of 1–3 letters, which are everywhere). Up to 2 skipped, extra or misheard words are tolerated (−0.3 each); after that it stops. So the evidence has to be the **same words, in the same order, side by side**, not a few common words scattered over a paragraph.
+2. **Anchor:** any move outside the "near" zone (`d = j − pos` from −3 to +2) also requires the last **two** heard words to sit side by side at `j−1, j`. A misheard last word can't create a jump.
+3. **Evidence threshold** grows with the distance:
+   - near (`−3 ≤ d ≤ 2`) → the word itself (0.6)
+   - `d ≤ 10` → 1.8 (about 2 words)
+   - further ahead → 2.6 (about 3 words)
+   - **back** (`d < −3`, re-reading) → 3 (about 4 words)
+4. **Value** = score − 0.05 × |d|, +0.5 inside the near zone. The highest value wins, so a phrase that appears twice in the script resolves to the copy nearest the reader.
+5. A weak match behind the reader means "still here", so the position stays put. Only a strong (≥ 3) match moves it back.
 
-The new position is `j + 1`. The app only ever moves **forward** automatically. Moving back is manual (tap a word).
+The new position is `j + 1`. It can be **behind** the current one: when you repeat a sentence, the highlight follows you back, then carries on when you continue.
 
 This gives the behaviour you'd want:
 | Situation | Result |
@@ -67,9 +69,13 @@ This gives the behaviour you'd want:
 | Read word-for-word | Advances one word at a time |
 | Misheard / filler / ad-lib words | Ignored: there's no candidate, or not enough evidence |
 | Skipped a sentence | Catches up after about 3 matching words |
-| Repeated common word ahead | Not enough fresh evidence, so it doesn't jump |
+| Same phrase appears twice in the script | Stays on the copy you're reading |
+| You repeat a sentence | Follows you back after about 4 words |
+| Common word ("the", "a") on its own | Never jumps |
 
-Cost per result: about 60 candidates × an 8 × 11 LCS, a few thousand comparisons. That's negligible on a phone.
+In a simulation of 500 noisy reads (6% dropped, 6% misheard, 4% filler words) of a script with many repeated phrases, the old LCS-window matcher ran more than 2 words ahead of the reader 23,157 times (worst case 94 words). This one did so 6 times, never by more than 3 words.
+
+Cost per result: about 120 candidates × a short backward walk. That's negligible on a phone.
 
 `npm test` runs these scenarios.
 
@@ -134,6 +140,6 @@ mic → high-pass 85 Hz → peaking −2 dB @300 Hz → peaking +3 dB @3.5 kHz
 | `index.html` | Markup for all views and sheets |
 | `style.css` | Styling. Prompter sizing comes from CSS variables (`--fs`, `--lines`, `--w`, `--top`, `--eye`, `--hl`). |
 | `app.js` | State (`settings`, `P`), views, engines, camera, recording, audio, settings form binding |
-| `matcher.js` | `norm`, `splitWords`, `sim`, `lcs`, `findNext`. Works in the browser (`window.Matcher`) and Node (`module.exports`). |
+| `matcher.js` | `norm`, `splitWords`, `sim`, `lcs`, `findNext` (with `suffixScore`). Works in the browser (`window.Matcher`) and Node (`module.exports`). |
 | `sw.js` | Offline cache |
 | `nginx.conf`, `Dockerfile` | Self-hosting image |

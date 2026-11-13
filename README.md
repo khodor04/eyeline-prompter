@@ -138,7 +138,7 @@ Firefox doesn't support speech recognition, so it falls back to auto-scroll.
 
 ## How it works
 
-The interesting part is matching speech to the script. Speech recognition is noisy: it mishears words, rewrites earlier guesses and drops filler. EyeLine aligns the **last ~8 words heard** against a window of the script around your position, using fuzzy word matching and a longest-common-subsequence score. The further ahead a candidate is, the more matching words it needs, which stops the prompter from jumping ahead on common words like "the".
+The interesting part is matching speech to the script. Speech recognition is noisy: it mishears words, rewrites earlier guesses and drops filler. EyeLine aligns the **last ~8 words heard** against a window of the script around your position, using fuzzy word matching. A move needs the words you just said to appear in the same order, side by side, in the script. The further it moves, the more words it needs. This stops it jumping ahead on common words like "the" or on phrases that appear twice. If you repeat a sentence, it follows you back.
 
 Architecture, the matching algorithm, the recording pipeline and the audio chain are explained in **[docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md)**.
 

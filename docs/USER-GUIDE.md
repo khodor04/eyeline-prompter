@@ -138,6 +138,7 @@ The format is **MP4** where the browser supports it (Safari and recent Chrome), 
 | "Mic busy" / auto-scroll during a take | Browser speech can't share the mic with recording. Set **Voice engine** to *Auto* or *On-device* (needs a supported language). |
 | Voice model download is slow | It's a one-time download of about 40 MB. Use **Download voice model now** on Wi-Fi. |
 | It jumped to the wrong place | Tap the word you're on. It continues from there. |
+| I want to redo a sentence | Just say it again. After about 4 words the highlight moves back to it. |
 | Android beeps when listening starts | That's Chrome's speech engine restarting after silence. Lower the media volume. |
 | Filter missing from the saved video | Your browser can't burn filters into the video (older Safari). The app warns you when this happens. |
 | Screen turns off | Your browser doesn't support Wake Lock. Increase the screen timeout in the phone's settings. |
